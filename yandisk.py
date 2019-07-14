@@ -3,6 +3,7 @@ import json
 import urllib.parse
 import argparse
 import sys
+import pathlib
 
 """AppName: ytest
 Scopes:
@@ -20,20 +21,21 @@ def processArgs():
     parser = argparse.ArgumentParser(description="Yandex Disk console tool")
     parser.add_argument('-c', '--code', help="Input code here so we do not prompt to ask it")
     parser.add_argument('-f', '--config', help="Using config file that contains appid,appsecret,[code],[access_token]")
+    parser.add_argument('-i', '--interactive', help="Interactive run, in which we prompt and ask you input necessary infomation",action="store_true")
+    parser.add_argument('-u', '--update', help="Update config file, need config file specified",action="store_true")
 
-    _dummy, subCommandArgs = parser.parse_known_args()
-
-    sub_parsers = parser.add_subparsers(title="Subcommand", description="Adding -h on subcommand to see subcommand help")
+    sub_parsers = parser.add_subparsers(title="Subcommand", description="Adding -h on subcommand to see subcommand help",dest="subcommand")
     parser_ls = sub_parsers.add_parser('ls',help="List remote dir")
     parser_ls.add_argument('ls_dir',nargs="?", default="/" , help="Dir that you want to list, default is root(/)",metavar="path")
     parser_ls.set_defaults(func=lsCommand)
     parser_upload = sub_parsers.add_parser('upload',help="Upload one file to remote")
     parser_upload.add_argument("-r", help="Is url link?")
     parser_upload.add_argument("upload_src", help="Local file that need to be uploaded",metavar="src")
-    parser_upload.add_argument("upload_dest", help="remote file that uploaded file should be. Parent path of remote file should exists",metavar="dest")
+    parser_upload.add_argument("upload_dest", help="remote file that uploaded file should be. Parent path of remote file should exists",
+                               nargs="?",default="/",metavar="dest")
     parser_upload.set_defaults(func=uploadFileCommand)
     args = parser.parse_args()
-    return args, subCommandArgs
+    return args
 
 env = {
     "appID":"",
@@ -45,8 +47,23 @@ env = {
     "apiHeaders" : {},
     "apiUrlPerfix":"""https://cloud-api.yandex.net/v1/"""
 }
+def populateEnv(args, env):
+    """Check Key env variabes and populate it if not"""
+    def check(key,action,*targs, **tkwargs):
+        if key not in env or not env[key]:
+            if args.interactive:
+                env[key] = action(*targs, **tkwargs)
+            else:
+                print(f"No {key} found,Using interactive mode to specify or using config path")
+                sys.exit(1)
+    check("appID", input, "Need app ID, please input it:\n")
+    check("appSecret",input, "Need app Secret, please input it:\n")
+    env["manualUrl"] = """https://oauth.yandex.com/authorize?""" + \
+        """response_type=code""" + \
+        f"""&client_id={env['appID']}"""
+    check("token", getToken, args, env)
 
-def getToken(env = env):
+def getToken(args, env = env):
     """will return json like:
     {"token_type": "bearer", "access_token": "AgAAAA...", "expires_in": 31536000, "refresh_token": "1:mqyQrF6d..."}
     """
@@ -110,6 +127,9 @@ def getPathInfo(path, limit=20,offset=False,env=env):
         return {}
 
 def uploadFileCommand(args,env=env):
+    source = pathlib.Path(args.upload_src)
+    if source.is_file() and args.upload_dest.endswith("/"):
+        args.upload_dest = args.upload_dest + source.resolve().name
     if uploadFile(args.upload_src, args.upload_dest, env):
         print("Upload done without error\n")
         return True
@@ -151,26 +171,27 @@ def perpareEnv(args, env=env):
                 env["code"] = configJson["code"]
             if "token" in configJson and configJson["token"]:
                 env["token"] = configJson["token"]
-    env["manualUrl"] = """https://oauth.yandex.com/authorize?""" + \
-            """response_type=code""" + \
-            f"""&client_id={env['appID']}"""
-    env["token"] = env["token"] if env["token"] else getToken(env) 
-    if not env["token"]: sys.exit() # Still can't have a token? I just exit!
-    # now update config to make config.json right
-    if args.config: 
-        with open(args.config,'w') as f: 
-            configJson["code"] = env["code"]
-            configJson["token"] = env["token"]
-            json.dump(configJson,f,indent=4) 
+    populateEnv(args, env) #valid env and populate it if needed
+    if not env["token"]: 
+        print("No token info, Using interactive mode or specify config path")
+        sys.exit() # Still can't have a token? I just exit!
+    if args.update: 
+        if not args.config: 
+            print("Need -f or --config to specified config file path when specified -u or --update")
+        else:
+            with open(args.config,'w') as f: 
+                configJson["code"] = env["code"]
+                configJson["token"] = env["token"]
+                json.dump(configJson,f,indent=4) 
     env["apiHeaders"] = {"Content-Type":'application/json',
                         "Authorization":f"OAuth {env['token']['access_token']}"} 
 
 if __name__ == "__main__":
-    args, subCommandArgs = processArgs()
+    args = processArgs()
     perpareEnv(args,env)
     #print(env)
     print(args)
-    if subCommandArgs: # specified subcommand
+    if args.subcommand: # specified subcommand
         result = args.func(args,env)
         print(result)
     else:
