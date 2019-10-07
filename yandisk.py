@@ -129,16 +129,17 @@ def getPathInfo(path, limit=20,offset=False,env=env):
 def uploadFileCommand(args,env=env):
     source = pathlib.Path(args.upload_src)
     sourcelist = []
+    destlist = []
     if source.is_file() and args.upload_dest.endswith("/"):
-        args.upload_dest = args.upload_dest + source.resolve().name
+        destlist.append(args.upload_dest + source.resolve().name)
         sourcelist.append(args.upload_src)
     if source.is_dir() and args.upload_dest.endswith("/"):
-        args.upload_dest = args.upload_dest + source.resolve().name
         for i in source.iterdir():
             if i.is_file():
                 sourcelist.append(i)
-    for i in sourcelist:
-        if uploadFile(i, args.upload_dest, env):
+                destlist.append(args.upload_dest + i.resolve().name)
+    for i,j in zip(sourcelist,destlist):
+        if uploadFile(i, j, env):
             print(f"Upload done without error: {i}\n")
         else:
             print(f"Upload error: {i}\n")
