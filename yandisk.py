@@ -135,7 +135,8 @@ def uploadFileCommand(args,env=env):
     if source.is_dir() and args.upload_dest.endswith("/"):
         args.upload_dest = args.upload_dest + source.resolve().name
         for i in source.iterdir():
-            sourcelist.append(i)
+            if i.is_file():
+                sourcelist.append(i)
     for i in sourcelist:
         if uploadFile(i, args.upload_dest, env):
             print(f"Upload done without error: {i}\n")
